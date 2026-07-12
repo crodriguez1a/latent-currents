@@ -39,6 +39,7 @@ const crowdVal = document.getElementById('crowd-val') as HTMLSpanElement;
 
 const timeSelect = document.getElementById('time-select') as HTMLSelectElement;
 const lightModeToggle = document.getElementById('light-mode-toggle') as HTMLInputElement;
+const recordBtn = document.getElementById('record-btn') as HTMLButtonElement;
 
 /**
  * Main Loop
@@ -280,6 +281,85 @@ function bindEvents(): void {
 
   // Fullscreen button
   fullscreenBtn.addEventListener('click', () => toggleFullscreen());
+
+  // Record 5s Clip button
+  let mediaRecorder: MediaRecorder | null = null;
+  let recordedChunks: Blob[] = [];
+
+  recordBtn.addEventListener('click', () => {
+    if (!visualEngine) return;
+    
+    const canvas = document.getElementById('webgl-canvas') as HTMLCanvasElement;
+    if (!canvas) return;
+
+    if (recordBtn.classList.contains('recording')) {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      return;
+    }
+
+    recordedChunks = [];
+    
+    try {
+      const stream = (canvas as any).captureStream ? (canvas as any).captureStream(60) : (canvas as any).mozCaptureStream ? (canvas as any).mozCaptureStream(60) : null;
+      if (!stream) {
+        alert('Canvas recording is not supported in this browser.');
+        return;
+      }
+
+      let options = { mimeType: 'video/webm;codecs=vp9' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'video/webm;codecs=vp8' };
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'video/webm' };
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: '' };
+      }
+
+      mediaRecorder = new MediaRecorder(stream, options);
+      
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          recordedChunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        recordBtn.classList.remove('recording');
+        recordBtn.innerHTML = '<span class="record-dot"></span>Record Clip';
+        
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'latent-currents-clip.webm';
+        a.click();
+        
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+      };
+
+      recordBtn.classList.add('recording');
+      recordBtn.innerHTML = '<span class="record-dot"></span>Recording...';
+
+      mediaRecorder.start();
+
+      setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+      }, 5000);
+
+    } catch (err) {
+      console.error('Failed to record canvas:', err);
+      alert('Failed to start recording.');
+      recordBtn.classList.remove('recording');
+      recordBtn.innerHTML = '<span class="record-dot"></span>Record Clip';
+    }
+  });
 
   // Interactive chimes: clicking canvas repels particles and plays a sound
   window.addEventListener('mousedown', (e) => {

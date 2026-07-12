@@ -579,6 +579,37 @@ body.light-mode .dashboard-tab-btn:hover {
   transform: scale(0.98);
 }
 
+.record-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 60, 60, 0.08);
+  border-color: rgba(255, 60, 60, 0.2);
+}
+
+.record-btn:hover {
+  background: rgba(255, 60, 60, 0.15);
+  border-color: rgba(255, 60, 60, 0.35);
+}
+
+.record-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #ff3b30;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 8px rgba(255, 59, 48, 0.6);
+}
+
+.recording .record-dot {
+  animation: pulse-recording 1.2s alternate infinite;
+}
+
+@keyframes pulse-recording {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.35); opacity: 0.35; }
+}
+
 .text-center {
   align-items: center;
 }
