@@ -2,6 +2,8 @@
 
 An immersive, real-time generative art installation. It simulates up to **1,000,000 particles** entirely on the GPU at 60 FPS, responding dynamically to ambient soundscapes and physical human movement captured via webcam.
 
+![Latent Currents Installation Demo](./latent-currents-clip.gif)
+
 ---
 
 ## Features
