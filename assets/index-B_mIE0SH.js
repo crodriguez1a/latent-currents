@@ -4344,9 +4344,27 @@ void main() {
   vec3 pos = posData.xyz;
   vec3 vel = velData.xyz;
 
+  // Initialize and compute pullFactor early based on webcam/friend grid texture
+  float pullFactor = 0.0;
+  vec2 sampleUV = vec2(1.0 - uv.x, uv.y);
+  if (uWebcamMirrorActive > 0.5) {
+    vec4 camColor = texture2D(uWebcamTexture, sampleUV);
+    float camLuma = camColor.r * 0.299 + camColor.g * 0.587 + camColor.b * 0.114;
+    // Read local motion intensity from the optical flow texture
+    vec4 motionData = texture2D(uMotionTexture, sampleUV);
+    float motionIntensity = motionData.b;
+    pullFactor = clamp(camLuma * 0.45 + motionIntensity * 0.38, 0.0, 0.88);
+  }
+
+  // Calculate scaling factor to damp ambient currents inside active silhouettes
+  float ambientScale = 1.0;
+  if (uWebcamMirrorActive > 0.5) {
+    ambientScale = 1.0 - clamp(pullFactor * 0.78, 0.0, 0.78);
+  }
+
   // Mass varies based on texture coordinate (gives some particles more inertia)
   // Let mass range from 0.35 (very light spray) to 2.2 (heavy plates)
-  float mass = mix(0.35, 2.2, fract(uv.x * 123.456 + uv.y * 789.123));
+  float mass = mix(0.35, 2.2, fract(uv.x * 12.9898 + uv.y * 78.233));
 
   // Apply mass-dependent drag: heavier particles slide longer with less drag
   float drag = mix(0.958, 0.993, (mass - 0.35) / (2.2 - 0.35));
@@ -4369,7 +4387,7 @@ void main() {
   float noiseY = snoise(pos * windFreq + vec3(2.34, 5.67, uTime * 0.06)) * localTurbulence * windScale;
   float noiseZ = snoise(pos * windFreq + vec3(8.91, 1.23, uTime * 0.06)) * localTurbulence * windScale;
 
-  totalForce += vec3(noiseX, noiseY, noiseZ) * forceFactor;
+  totalForce += vec3(noiseX, noiseY, noiseZ) * forceFactor * ambientScale;
 
   // 2. Circular Roller Currents
   // Roller 1: Center-left, pulling down and curling back up
@@ -4379,8 +4397,8 @@ void main() {
   if (dist1Sq < 144.0) { // Radius of 12
     float dist1 = sqrt(dist1Sq) + 0.1;
     float rollInfluence = (1.0 - dist1 / 12.0) * uSpeed * 0.22;
-    totalForce.x += (-d1.y / dist1) * rollInfluence;
-    totalForce.y += (d1.x / dist1) * rollInfluence;
+    totalForce.x += (-d1.y / dist1) * rollInfluence * ambientScale;
+    totalForce.y += (d1.x / dist1) * rollInfluence * ambientScale;
   }
 
   // Roller 2: Right side, rotating opposite
@@ -4390,8 +4408,8 @@ void main() {
   if (dist2Sq < 81.0) { // Radius of 9
     float dist2 = sqrt(dist2Sq) + 0.1;
     float rollInfluence = (1.0 - dist2 / 9.0) * (-uSpeed * 0.15);
-    totalForce.x += (-d2.y / dist2) * rollInfluence;
-    totalForce.y += (d2.x / dist2) * rollInfluence;
+    totalForce.x += (-d2.y / dist2) * rollInfluence * ambientScale;
+    totalForce.y += (d2.x / dist2) * rollInfluence * ambientScale;
   }
 
   // 3. Crashing Swell Wave Front
@@ -4403,14 +4421,14 @@ void main() {
   if (distToWave > -5.0 && distToWave < 1.0) {
     float liftFactor = (1.0 - abs(distToWave + 2.0) / 3.0);
     float normalizedLift = max(0.0, liftFactor) * (mass > 1.1 ? 0.35 : 0.8) * uSpeed;
-    totalForce.y += normalizedLift;
-    totalForce.x += normalizedLift * 0.5;
-    totalForce.z += snoise(pos * 0.2) * normalizedLift * 0.25;
+    totalForce.y += normalizedLift * ambientScale;
+    totalForce.x += normalizedLift * 0.5 * ambientScale;
+    totalForce.z += snoise(pos * 0.2) * normalizedLift * 0.25 * ambientScale;
   } else if (distToWave >= -10.0 && distToWave <= -5.0) {
     float crashFactor = (1.0 - abs(distToWave + 7.5) / 2.5);
     float normalizedCrash = max(0.0, crashFactor) * (mass > 1.1 ? 0.4 : 0.2) * uSpeed;
-    totalForce.y -= normalizedCrash;
-    totalForce.x += normalizedCrash * 0.25;
+    totalForce.y -= normalizedCrash * ambientScale;
+    totalForce.x += normalizedCrash * 0.25 * ambientScale;
   }
 
   // 4. Mouse Interactive Forces
@@ -4460,7 +4478,7 @@ void main() {
     float motionIntensity = motionData.b;
 
     // Combine brightness and motion to calculate pull strength (increased limits for high shape definition)
-    float pullFactor = clamp(camLuma * 0.45 + motionIntensity * 0.38, 0.0, 0.88);
+    pullFactor = clamp(camLuma * 0.45 + motionIntensity * 0.38, 0.0, 0.88);
     
     vec3 toGrid = targetPos - pos;
     // Spring attraction force towards grid coordinates (increased coefficient for cohesive forms)
@@ -4491,7 +4509,12 @@ void main() {
   }
 
   // Apply continuous pressure force (multiplied by mass to bypass inertia and scale with speed)
-  totalForce += repulsionForce * 0.28 * uSpeed * mass;
+  // Scale down neighbor pressure inside the active silhouette to allow sharp, cohesive features
+  float pressureScale = 1.0;
+  if (uWebcamMirrorActive > 0.5) {
+    pressureScale = 1.0 - clamp(pullFactor * 1.15, 0.0, 0.88);
+  }
+  totalForce += repulsionForce * 0.28 * uSpeed * mass * pressureScale;
 
   // Apply acceleration = Force / mass
   vel += totalForce / mass;
