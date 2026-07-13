@@ -4439,6 +4439,47 @@ void main() {
     totalForce += webcamForce;
   }
 
+  // 5.5 Stochastic Cluster Detection & Burst (Prevents solid-white hotspots)
+  float densityCount = 0.0;
+  float densityThreshold = 4.0; // Trigger burst if 50% or more samples are close
+  float clusterRadius = 2.0;
+  vec3 clusterCenter = vec3(0.0);
+  
+  for (int i = 1; i <= 8; i++) {
+    float fi = float(i);
+    // Pseudo-random sampling of other particles based on sine hashes of particle UV
+    vec2 sampleUV = fract(uv + vec2(
+      fract(sin(uv.x * 12.9898 + uv.y * 78.233 + fi * 3.14) * 43758.5453),
+      fract(cos(uv.x * 35.1234 + uv.y * 91.5678 + fi * 5.71) * 23456.7891)
+    ));
+    vec3 otherPos = texture2D(texturePosition, sampleUV).xyz;
+    vec3 toOther = otherPos - pos;
+    float dSq = dot(toOther, toOther);
+    
+    // Consider it close if within radius and not sampling itself
+    if (dSq < clusterRadius * clusterRadius && dSq > 0.0001) {
+      densityCount += 1.0;
+      clusterCenter += otherPos;
+    }
+  }
+
+  if (densityCount >= densityThreshold) {
+    clusterCenter /= densityCount;
+    vec3 repelDir = pos - clusterCenter;
+    float repelDistSq = dot(repelDir, repelDir);
+    float repelDist = sqrt(repelDistSq) + 0.01;
+    
+    // Burst acceleration: blows outward, scaled by distance to cluster center
+    float burstStrength = (1.0 - min(1.0, repelDist / clusterRadius)) * 0.52 * uSpeed;
+    
+    // Add radial repel force (multiplied by mass to bypass inertia)
+    totalForce += (repelDir / repelDist) * burstStrength * mass;
+    
+    // Add tangential swirl to create a gorgeous dispersion splash
+    totalForce.x += (-repelDir.y / repelDist) * burstStrength * 0.35 * mass;
+    totalForce.y += (repelDir.x / repelDist) * burstStrength * 0.35 * mass;
+  }
+
   // Apply acceleration = Force / mass
   vel += totalForce / mass;
 
