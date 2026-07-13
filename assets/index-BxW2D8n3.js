@@ -4462,9 +4462,19 @@ void main() {
   // 5.2 Webcam Mirror Attraction (Pulls particles to form the mirrored silhouette)
   if (uWebcamMirrorActive > 0.5) {
     vec2 targetGridUV = uv;
+    
+    // Add a tiny, organic breathing sway to the targets if it is Friend Mode
+    // We can check if uWebcamActive is 0.0 (which is the case when Friend Mode is active instead of webcam!)
+    float swayX = 0.0;
+    float swayY = 0.0;
+    if (uWebcamActive < 0.5) {
+      swayX = sin(uTime * 1.5 + targetGridUV.y * 5.0) * 0.28;
+      swayY = cos(uTime * 1.1 + targetGridUV.x * 5.0) * 0.18;
+    }
+
     vec3 targetPos = vec3(
-      (targetGridUV.x - 0.5) * 43.6,
-      (targetGridUV.y - 0.5) * 23.6,
+      (targetGridUV.x - 0.5) * 43.6 + swayX,
+      (targetGridUV.y - 0.5) * 23.6 + swayY,
       0.0
     );
 
