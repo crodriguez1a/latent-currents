@@ -4439,46 +4439,31 @@ void main() {
     totalForce += webcamForce;
   }
 
-  // 5.5 Stochastic Cluster Detection & Burst (Prevents solid-white hotspots)
-  float densityCount = 0.0;
-  float densityThreshold = 2.0; // Aggressive: trigger burst if 25% or more samples are close
-  float clusterRadius = 3.2; // Wider check radius
-  vec3 clusterCenter = vec3(0.0);
+  // 5.5 Continuous Negative-Space Pressure (Pushes particles away from neighbors towards empty space)
+  vec3 repulsionForce = vec3(0.0);
+  float searchRadius = 3.6;
   
   for (int i = 1; i <= 8; i++) {
     float fi = float(i);
-    // Pseudo-random sampling of other particles based on sine hashes of particle UV
+    // Pseudo-random sampling of other particles
     vec2 sampleUV = fract(uv + vec2(
       fract(sin(uv.x * 12.9898 + uv.y * 78.233 + fi * 3.14) * 43758.5453),
       fract(cos(uv.x * 35.1234 + uv.y * 91.5678 + fi * 5.71) * 23456.7891)
     ));
     vec3 otherPos = texture2D(texturePosition, sampleUV).xyz;
-    vec3 toOther = otherPos - pos;
-    float dSq = dot(toOther, toOther);
+    vec3 repelDir = pos - otherPos;
+    float distSq = dot(repelDir, repelDir);
     
-    // Consider it close if within radius and not sampling itself
-    if (dSq < clusterRadius * clusterRadius && dSq > 0.0001) {
-      densityCount += 1.0;
-      clusterCenter += otherPos;
+    if (distSq < searchRadius * searchRadius && distSq > 0.0001) {
+      float dist = sqrt(distSq);
+      // Smoothed particle hydrodynamics (SPH) pressure curve: force falls off with distance, spikes when extremely close
+      float forceStrength = (1.0 - dist / searchRadius) / (dist + 0.12);
+      repulsionForce += (repelDir / dist) * forceStrength;
     }
   }
 
-  if (densityCount >= densityThreshold) {
-    clusterCenter /= densityCount;
-    vec3 repelDir = pos - clusterCenter;
-    float repelDistSq = dot(repelDir, repelDir);
-    float repelDist = sqrt(repelDistSq) + 0.01;
-    
-    // Stronger burst acceleration: blows outward, scaled by distance to cluster center
-    float burstStrength = (1.0 - min(1.0, repelDist / clusterRadius)) * 0.88 * uSpeed;
-    
-    // Add radial repel force (multiplied by mass to bypass inertia)
-    totalForce += (repelDir / repelDist) * burstStrength * mass;
-    
-    // Add tangential swirl to create a gorgeous dispersion splash
-    totalForce.x += (-repelDir.y / repelDist) * burstStrength * 0.52 * mass;
-    totalForce.y += (repelDir.x / repelDist) * burstStrength * 0.52 * mass;
-  }
+  // Apply continuous pressure force (multiplied by mass to bypass inertia and scale with speed)
+  totalForce += repulsionForce * 0.28 * uSpeed * mass;
 
   // Apply acceleration = Force / mass
   vel += totalForce / mass;
