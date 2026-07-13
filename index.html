@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aether: Emergent Latent Space - Generative Art Installation</title>
+    <meta name="description" content="An immersive, real-time generative art installation inspired by Refik Anadol's Unsupervised, rendered in WebGL with ambient soundscapes." />
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="/latent-currents/assets/index-Ba6fJmyb.js"></script>
+    <link rel="stylesheet" crossorigin href="/latent-currents/assets/index-CnUOrv6A.css">
+  </head>
+  <body>
+    <!-- Fullscreen Canvas -->
+    <canvas id="webgl-canvas" class="fullscreen-canvas"></canvas>
+    
+    <!-- Hidden Webcam Video Capture Element -->
+    <video id="webcam-video" autoplay playsinline muted style="display: none;"></video>
+
+    <!-- Welcome Splash Screen (Audio unlock & Fullscreen trigger) -->
+    <div id="splash-overlay" class="splash-container">
+      <div class="splash-card">
+        <h1 class="splash-title">Aether: Emergent Latent Space</h1>
+        <p class="splash-subtitle">An interactive generative art installation</p>
+        <p class="splash-description">
+          A continuous, non-repeating flow of up to 1,000,000 particles simulated in real-time on your GPU, responding to ambient sound and movement. Inspired by Refik Anadol's <em>Unsupervised</em>.
+        </p>
+        
+        <!-- Hardware Diagnostic Panel -->
+        <div id="hardware-panel" class="hardware-panel">
+          <div class="hardware-status">
+            <span class="diagnostic-pulse"></span>
+            <span id="hardware-status-text">Checking graphics hardware...</span>
+          </div>
+          
+          <div id="hardware-warning" class="hardware-warning" style="display: none;">
+            <div class="warning-title-row">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <span>Performance Warning</span>
+            </div>
+            <p id="hardware-warning-desc">WebGL GPGPU computation requires floating point texture support.</p>
+          </div>
+
+          <div class="lite-mode-container">
+            <label class="lite-mode-label" for="lite-mode-checkbox">
+              <span class="custom-checkbox-wrapper">
+                <input type="checkbox" id="lite-mode-checkbox" />
+                <span class="custom-checkbox"></span>
+              </span>
+              <span id="lite-mode-label-text" class="lite-mode-label-text">Enable Lite Mode (Optimize for battery/performance)</span>
+            </label>
+          </div>
+        </div>
+
+        <button id="enter-btn" class="enter-button">Enter Installation</button>
+      </div>
+    </div>
+
+    <!-- Sidebar Dashboard -->
+    <main id="dashboard" class="dashboard-container" style="display: none;">
+      <!-- Vertical collapsible side tab -->
+      <button id="dashboard-tab" class="dashboard-tab-btn" aria-label="Toggle Settings Panel">
+        <span class="tab-text">SETTINGS</span>
+        <svg class="tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+
+      <header class="dashboard-header">
+        <div class="title-group">
+          <h2>Aether</h2>
+          <span class="badge">Active</span>
+        </div>
+      </header>
+
+      <div class="dashboard-content scroller">
+        <!-- Section: Presets -->
+        <section class="control-section">
+          <h3>Visual Presets</h3>
+          <div class="preset-grid">
+            <button class="preset-card active" data-preset="paint" title="Desert Oasis theme">
+              <span class="preset-name">Desert Oasis</span>
+              <span class="preset-desc">Terracotta & warm sand</span>
+              <div class="color-preview">
+                <span class="color-dot" style="background-color: #e76f51;"></span>
+                <span class="color-dot" style="background-color: #f4a261;"></span>
+                <span class="color-dot" style="background-color: #e9c46a;"></span>
+                <span class="color-dot" style="background-color: #2a9d8f;"></span>
+                <span class="color-dot" style="background-color: #264653;"></span>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="neon" title="Acid Cyberpunk theme">
+              <span class="preset-name">Acid Cyberpunk</span>
+              <span class="preset-desc">Neon magenta & cyan</span>
+              <div class="color-preview">
+                <span class="color-dot" style="background-color: #ff007f;"></span>
+                <span class="color-dot" style="background-color: #7b2cbf;"></span>
+                <span class="color-dot" style="background-color: #3f37c9;"></span>
+                <span class="color-dot" style="background-color: #4cc9f0;"></span>
+                <span class="color-dot" style="background-color: #f72585;"></span>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="monolith" title="Sculptural Copper theme">
+              <span class="preset-name">Sculptural Copper</span>
+              <span class="preset-desc">Alabaster & warm copper</span>
+              <div class="color-preview">
+                <span class="color-dot" style="background-color: #ede0d4;"></span>
+                <span class="color-dot" style="background-color: #ddb892;"></span>
+                <span class="color-dot" style="background-color: #7f5539;"></span>
+                <span class="color-dot" style="background-color: #9c6644;"></span>
+                <span class="color-dot" style="background-color: #b5828c;"></span>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="nebula" title="Forest Moss theme">
+              <span class="preset-name">Forest Moss</span>
+              <span class="preset-desc">Deep moss & glacial sage</span>
+              <div class="color-preview">
+                <span class="color-dot" style="background-color: #2b4c3f;"></span>
+                <span class="color-dot" style="background-color: #a3b19b;"></span>
+                <span class="color-dot" style="background-color: #83c5be;"></span>
+                <span class="color-dot" style="background-color: #edf6f9;"></span>
+                <span class="color-dot" style="background-color: #006d77;"></span>
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <!-- Section: Visual Parameters -->
+        <section class="control-section">
+          <h3>Visual Control</h3>
+          
+          <div class="control-group">
+            <div class="control-label">
+              <label for="speed-slider">Flow Speed</label>
+              <span id="speed-val">1.0x</span>
+            </div>
+            <input type="range" id="speed-slider" min="0.1" max="3" step="0.1" value="1.0" class="slider" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <label for="turbulence-slider">Turbulence</label>
+              <span id="turbulence-val">1.5</span>
+            </div>
+            <input type="range" id="turbulence-slider" min="0.2" max="4.0" step="0.1" value="1.5" class="slider" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <label for="particle-slider">Particle Count</label>
+              <span id="particle-val">262,144</span>
+            </div>
+            <input type="range" id="particle-slider" min="1" max="3" step="1" value="2" class="slider" />
+          </div>
+        </section>
+
+        <!-- Section: Soundscape -->
+        <section class="control-section">
+          <h3>Soundscape</h3>
+          
+          <div class="toggle-row">
+            <span>Audio Synth</span>
+            <label class="switch-toggle" for="audio-toggle">
+              <input type="checkbox" id="audio-toggle" checked />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <label for="volume-slider">Volume</label>
+              <span id="volume-val">40%</span>
+            </div>
+            <input type="range" id="volume-slider" min="0" max="100" step="5" value="40" class="slider" />
+          </div>
+        </section>
+
+        <!-- Section: Webcam Interaction -->
+        <section class="control-section">
+          <h3>Webcam Interaction</h3>
+          
+          <div class="toggle-row">
+            <span>Webcam Flow</span>
+            <label class="switch-toggle" for="webcam-toggle">
+              <input type="checkbox" id="webcam-toggle" />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </section>
+
+        <!-- Section: Environment -->
+        <section class="control-section">
+          <h3>Environment Simulation</h3>
+
+          <div class="control-group">
+            <div class="control-label">
+              <label for="crowd-slider">Crowd Intensity</label>
+              <span id="crowd-val">Low</span>
+            </div>
+            <input type="range" id="crowd-slider" min="0" max="3" step="1" value="1" class="slider" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <label for="time-select">Time of Day</label>
+            </div>
+            <div class="custom-select-wrapper">
+              <select id="time-select" class="select-dropdown">
+                <option value="auto">System Time (Auto)</option>
+                <option value="morning">Morning (Silver & Teal)</option>
+                <option value="midday">Midday (Warm Amber & Gold)</option>
+                <option value="evening">Evening (Indigo & Violet)</option>
+                <option value="night">Night (Bioluminescent Neon)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="toggle-row" style="margin-top: 10px;">
+            <span>Light Mode Contrast</span>
+            <label class="switch-toggle" for="light-mode-toggle">
+              <input type="checkbox" id="light-mode-toggle" />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </section>
+
+        <!-- Capture Clip & Fullscreen Option -->
+        <section class="control-section" style="display: flex; gap: 10px;">
+          <button id="fullscreen-btn" class="action-btn" style="flex: 1; padding: 12px 6px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+            </svg>
+            Full Screen
+          </button>
+          
+          <button id="record-btn" class="action-btn record-btn" style="flex: 1; padding: 12px 6px;">
+            <span class="record-dot"></span>
+            Record Clip
+          </button>
+        </section>
+      </div>
+
+      <footer class="dashboard-footer">
+        <p>Interactive Generative Installation</p>
+      </footer>
+    </main>
+
+  </body>
+</html>
