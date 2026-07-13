@@ -4454,6 +4454,14 @@ void main() {
     vel.y += 0.016 * uSpeed;
   }
 
+  // 8. Top-Right Corner Stagnation Prevention (Disperses particles left and down to prevent burn-in / hot spots)
+  if (pos.x > 15.0 && pos.y > 7.0) {
+    float trFactor = clamp((pos.x - 15.0) * (pos.y - 7.0) / 35.0, 0.0, 1.0);
+    float trNoise = snoise(vec3(pos.xy * 0.12, uTime * 0.25)) * 0.12;
+    vel.x -= trFactor * (0.042 + trNoise) * uSpeed;
+    vel.y -= trFactor * (0.028 - trNoise) * uSpeed;
+  }
+
   // --- SHADOWBOX BOUNDS & ELASTIC BOUNCES ---
   // X Bounds (Side Walls): [-22.0, 22.0]
   if (pos.x >= 22.0 && vel.x > 0.0) {
