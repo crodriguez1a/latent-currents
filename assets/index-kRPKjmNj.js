@@ -4357,9 +4357,10 @@ void main() {
   }
 
   // Calculate scaling factor to damp ambient currents inside active silhouettes
+  // Softened damping (only 30% reduction) to allow ambient currents to organically ripple the shapes
   float ambientScale = 1.0;
   if (uWebcamMirrorActive > 0.5) {
-    ambientScale = 1.0 - clamp(pullFactor * 0.78, 0.0, 0.78);
+    ambientScale = 1.0 - clamp(pullFactor * 0.30, 0.0, 0.30);
   }
 
   // Mass varies based on texture coordinate (gives some particles more inertia)
@@ -4491,8 +4492,8 @@ void main() {
     pullFactor = clamp(camLuma * 0.45 + motionIntensity * 0.38, 0.0, 0.88);
     
     vec3 toGrid = targetPos - pos;
-    // PD controller (Proportional-Derivative) to pull particles into targets and damp oscillations
-    vec3 pdForce = (toGrid * 5.2 - vel * 3.2) * pullFactor * uSpeed * mass;
+    // PD controller (Proportional-Derivative) with organic, fluid gains to allow flow-through and deformation
+    vec3 pdForce = (toGrid * 1.85 - vel * 0.95) * pullFactor * uSpeed * mass;
     totalForce += pdForce;
   }
 
@@ -4520,10 +4521,10 @@ void main() {
   }
 
   // Apply continuous pressure force (multiplied by mass to bypass inertia and scale with speed)
-  // Scale down neighbor pressure inside the active silhouette to allow sharp, cohesive features
+  // Scale down neighbor pressure slightly inside silhouettes to allow cohesive clustering while keeping collision dynamics pliant
   float pressureScale = 1.0;
   if (uWebcamMirrorActive > 0.5) {
-    pressureScale = 1.0 - clamp(pullFactor * 1.15, 0.0, 0.88);
+    pressureScale = 1.0 - clamp(pullFactor * 0.35, 0.0, 0.35);
   }
   totalForce += repulsionForce * 0.28 * uSpeed * mass * pressureScale;
 
