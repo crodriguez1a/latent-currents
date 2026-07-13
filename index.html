@@ -10,8 +10,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="/latent-currents/assets/index-Ba6fJmyb.js"></script>
-    <link rel="stylesheet" crossorigin href="/latent-currents/assets/index-CnUOrv6A.css">
+    <script type="module" crossorigin src="/latent-currents/assets/index-eURevr4r.js"></script>
+    <link rel="stylesheet" crossorigin href="/latent-currents/assets/index-BFIa-Xb1.css">
   </head>
   <body>
     <!-- Fullscreen Canvas -->
@@ -48,14 +48,15 @@
             <p id="hardware-warning-desc">WebGL GPGPU computation requires floating point texture support.</p>
           </div>
 
-          <div class="lite-mode-container">
-            <label class="lite-mode-label" for="lite-mode-checkbox">
+          <div class="lite-mode-container" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <label class="lite-mode-label" for="lite-mode-checkbox" style="display: flex; align-items: center; margin-right: 12px;">
               <span class="custom-checkbox-wrapper">
                 <input type="checkbox" id="lite-mode-checkbox" />
                 <span class="custom-checkbox"></span>
               </span>
               <span id="lite-mode-label-text" class="lite-mode-label-text">Enable Lite Mode (Optimize for battery/performance)</span>
             </label>
+            <button id="debug-log-toggle-btn" class="debug-log-toggle-btn" style="display: none;">Logs</button>
           </div>
         </div>
 
@@ -251,6 +252,15 @@
         <p>Interactive Generative Installation</p>
       </footer>
     </main>
+
+    <!-- Diagnostic Debug Console -->
+    <div id="debug-console" class="debug-console" style="display: none;">
+      <div class="debug-console-header">
+        <span>Aether Diagnostics Console</span>
+        <button id="close-debug-btn" class="close-debug-btn">Hide</button>
+      </div>
+      <div id="debug-console-logs" class="debug-console-logs scroller"></div>
+    </div>
 
   </body>
 </html>
