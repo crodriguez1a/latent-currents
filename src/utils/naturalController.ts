@@ -110,26 +110,26 @@ export class NaturalInteractionController {
       // Standard steering physics: bird position sways/chases the 3D mouse position
       const targetPos = mouse3D.clone();
       
-      // Add dynamic flight soaring height displacement (ambient noise glide)
-      targetPos.y += Math.sin(time * 1.5) * 1.2;
-      targetPos.z += Math.cos(time * 1.0) * 0.5;
+      // Soaring gliding offset (lower frequency, smoother: time * 0.6 instead of 1.5)
+      targetPos.y += Math.sin(time * 0.6) * 1.5;
+      targetPos.z += Math.cos(time * 0.4) * 0.8;
 
-      // Velocity change = force towards target
-      const steeringForce = new THREE.Vector3().subVectors(targetPos, this.birdPos);
-      steeringForce.multiplyScalar(0.08);
-
-      this.birdVelocity.add(steeringForce);
-      this.birdVelocity.clampLength(0.0, 15.0); // speed limit
-      this.birdVelocity.multiplyScalar(0.96); // drag friction
-
-      this.birdPos.addScaledVector(this.birdVelocity, dt);
-
-      // Banking angle (roll tilt) relative to lateral velocity speed
-      const targetRoll = -this.birdVelocity.x * 0.06;
-      const targetYaw = Math.atan2(this.birdVelocity.x, -this.birdVelocity.y) * 0.5;
+      // Smooth tracking LERP for bird position
+      // Slow, heavy bird inertia (glide speed)
+      const prevPos = this.birdPos.clone();
       
-      this.birdRotation.z += (targetRoll - this.birdRotation.z) * 0.12;
-      this.birdRotation.y += (targetYaw - this.birdRotation.y) * 0.12;
+      // Interpolate position with high damping LERP
+      this.birdPos.lerp(targetPos, 0.045); // 4.5% glide LERP
+
+      // Compute flight heading/velocity vector based on position delta
+      this.birdVelocity.subVectors(this.birdPos, prevPos).multiplyScalar(1.0 / Math.max(0.001, dt));
+
+      // Limit roll banking angle and low-pass filter rotations to prevent spastic tilts
+      const targetRoll = Math.max(-0.65, Math.min(0.65, -this.birdVelocity.x * 0.08));
+      const targetYaw = Math.atan2(this.birdVelocity.x, 8.0); // smooth yaw heading
+      
+      this.birdRotation.z += (targetRoll - this.birdRotation.z) * 0.06; // slower rotation LERP
+      this.birdRotation.y += (targetYaw - this.birdRotation.y) * 0.06;
 
       // Update microphone voice level analysis
       this.micVolume = 0.0;

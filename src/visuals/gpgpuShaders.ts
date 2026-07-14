@@ -333,6 +333,15 @@ void main() {
     totalForce *= 0.12;
     vel *= 0.94; // high damping factor for structural stability
 
+    // Add back the webcam motion force with boosted gain for responsive elements interaction!
+    if (uWebcamActive > 0.5) {
+      vec2 screenUV = vec2((pos.x + 22.0) / 44.0, (pos.y + 12.0) / 24.0);
+      screenUV = clamp(screenUV, 0.0, 1.0);
+      vec4 webcamData = texture2D(uMotionTexture, screenUV);
+      vec3 webcamForce = vec3(webcamData.r, webcamData.g, 0.0) * webcamData.b * 18.0;
+      totalForce += webcamForce * mass;
+    }
+
     if (uNaturalMode < 1.5) {
       // --- Pool of Water ---
       // Flat horizontal layout at Z = 0
@@ -347,37 +356,60 @@ void main() {
       totalForce += (targetPos - pos) * 5.5 * mass;
     } 
     else if (uNaturalMode < 2.5) {
-      // --- Field of Flowers ---
-      // Distribute particles into 320 columns (stems)
-      float stemCol = floor(uv.x * 320.0) / 320.0;
+      // --- Sparse Wild Flowers ---
+      // Distribute particles into 16 distinct, spaced-out flowers
+      float flowerId = floor(uv.x * 16.0);
       float heightIdx = uv.y; // 0.0 (base) to 1.0 (flower head)
       
-      float stemX = (stemCol - 0.5) * 43.6;
-      float restX = stemX;
-      float restY = -12.0 + heightIdx * 24.0;
+      // Calculate even spacing with organic jitter horizontally
+      float spacing = 36.0 / 15.0; // span from -18.0 to 18.0
+      float jitter = (fract(sin(flowerId * 43.12) * 98.43) - 0.5) * spacing * 0.7;
+      float flowerX = -18.0 + flowerId * spacing + jitter;
+      
+      // Base height is at floor (-12.0)
+      float baseY = -12.0;
+      float restX = flowerX;
+      float restY = baseY + heightIdx * 18.0; // stem height goes up to 6.0
       float restZ = 0.0;
 
-      // Wind sway noise (increasing with height index)
-      float wind = sin(uTime * 1.6 + stemX * 0.3) * 0.65 * heightIdx * heightIdx;
+      // Spiral distribution to give organic stem volume/girth
+      float stemGirth = 0.16 * (1.0 - heightIdx); // thickest at base, tapers to zero
+      float spiralAngle = uv.x * 62.8318;
+      restX += cos(spiralAngle) * stemGirth;
+      restZ += sin(spiralAngle) * stemGirth;
+
+      // Wind sway (harmonic sin wave, shifts by flower index and height)
+      float wind = sin(uTime * 1.5 + flowerX * 0.2) * 0.85 * heightIdx * heightIdx;
       restX += wind;
 
       // Interactive mouse brush (bends the stem away from cursor position)
       float mouseDist = distance(vec2(restX, restY), uMouse3D.xy);
-      if (mouseDist < 6.0) {
-        float bend = (1.0 - mouseDist / 6.0) * 2.8 * (uMouseActive > 0.5 ? 2.0 : 1.0);
+      if (mouseDist < 8.0) {
+        float bend = (1.0 - mouseDist / 8.0) * 3.5 * (uMouseActive > 0.5 ? 2.2 : 1.2);
         restX += (restX - uMouse3D.x > 0.0 ? 1.0 : -1.0) * bend * heightIdx;
-        restY -= bend * 0.2 * heightIdx;
+        restY -= bend * 0.15 * heightIdx;
       }
 
-      // Flower petals (blooming circles at the top of stems, for uv.y > 0.75)
+      // Flower petals (blooming radial shapes at the top of stems, for uv.y > 0.75)
       if (heightIdx > 0.75) {
-        float petalAngle = uv.y * 12.56636; // 4 * PI (radial distribution)
-        float r = (0.22 + uBloomFactor * 0.65) * (heightIdx - 0.75) / 0.25;
+        // Group petals: distribute particles into 8 distinct petals around the head
+        float petalId = floor(fract(uv.x * 16.0) * 8.0);
+        float petalAngle = (petalId / 8.0) * 6.28318 + (fract(uv.x * 128.0) - 0.5) * 0.12;
+        float progress = (heightIdx - 0.75) / 0.25; // 0.0 to 1.0 along the length
         
-        // Petal shape offset around flower head
-        restX = stemX + wind + cos(petalAngle) * r;
-        restY = -12.0 + 0.75 * 24.0 + sin(petalAngle) * r;
-        restZ = sin(petalAngle * 2.0) * r * 0.4;
+        // Petals extend outwards, blooming exponentially on uBloomFactor
+        float r = (0.28 + uBloomFactor * 2.2) * progress;
+        
+        restX = flowerX + wind + cos(petalAngle) * r;
+        restY = baseY + 0.75 * 18.0 + sin(petalAngle) * r;
+        restZ = sin(petalAngle * 2.0) * r * 0.35;
+        
+        // Add mouse close-hover attraction (flowers bend/orient slightly towards cursor)
+        if (mouseDist < 5.0) {
+          float orientFactor = (1.0 - mouseDist / 5.0) * 0.38;
+          restX += (uMouse3D.x - restX) * orientFactor;
+          restY += (uMouse3D.y - restY) * orientFactor;
+        }
       }
 
       totalForce += (vec3(restX, restY, restZ) - pos) * 6.5 * mass;
