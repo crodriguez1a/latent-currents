@@ -327,6 +327,25 @@ function bindEvents(): void {
     });
   });
 
+  // Natural Elements selector
+  const naturalCards = document.querySelectorAll('.preset-card[data-natural]');
+  naturalCards.forEach((card) => {
+    card.addEventListener('click', () => {
+      naturalCards.forEach((c) => c.classList.remove('active'));
+      card.classList.add('active');
+
+      const naturalMode = card.getAttribute('data-natural') as any;
+      if (visualEngine) {
+        visualEngine.setNaturalMode(naturalMode);
+      }
+
+      // Play soft transition chime
+      if (audioEngine) {
+        audioEngine.triggerChime(0.6);
+      }
+    });
+  });
+
   // Flow speed
   speedSlider.addEventListener('input', () => {
     const val = parseFloat(speedSlider.value);

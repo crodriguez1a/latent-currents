@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer.js';
+import { NaturalInteractionController, type NaturalModeType } from '../utils/naturalController';
 
 import {
   velocityShader,
@@ -32,6 +33,7 @@ export class VisualEngine {
   private positionVariable!: any;
   private velocityVariable!: any;
   private initialPositionTexture!: THREE.DataTexture;
+  private naturalController = new NaturalInteractionController();
   private renderMaterial!: THREE.ShaderMaterial;
   private pointsMesh!: THREE.Points;
 
@@ -262,6 +264,13 @@ export class VisualEngine {
     this.velocityVariable.material.uniforms.uShapeOffset = { value: new THREE.Vector2(0, 0) };
     this.velocityVariable.material.uniforms.uShapeRotation = { value: 0.0 };
     this.velocityVariable.material.uniforms.uShapeScale = { value: 1.0 };
+    this.velocityVariable.material.uniforms.uNaturalMode = { value: 0.0 };
+    this.velocityVariable.material.uniforms.uBirdPos = { value: new THREE.Vector3(0, 0, 0) };
+    this.velocityVariable.material.uniforms.uBirdRotation = { value: new THREE.Vector3(0, 0, 0) };
+    this.velocityVariable.material.uniforms.uFlapFreq = { value: 6.5 };
+    this.velocityVariable.material.uniforms.uRippleAmp = { value: 0.0 };
+    this.velocityVariable.material.uniforms.uStemBend = { value: new THREE.Vector2(0, 0) };
+    this.velocityVariable.material.uniforms.uBloomFactor = { value: 0.0 };
 
     // Initialize renderer
     const error = this.gpuCompute.init();
@@ -317,7 +326,8 @@ export class VisualEngine {
         uTargetAspect: { value: 1.0 },
         uShapeOffset: { value: new THREE.Vector2(0, 0) },
         uShapeRotation: { value: 0.0 },
-        uShapeScale: { value: 1.0 }
+        uShapeScale: { value: 1.0 },
+        uNaturalMode: { value: 0.0 }
       },
       transparent: true,
       depthWrite: false,
@@ -465,7 +475,13 @@ export class VisualEngine {
       this.updateWebcamMotionTexture();
     }
 
-
+    // Update natural elements simulation states
+    this.naturalController.update(time, dt, this.mouse, this.isMouseActive, this.mouse3D);
+    const modeStr = this.naturalController.getMode();
+    let modeVal = 0.0;
+    if (modeStr === 'water') modeVal = 1.0;
+    else if (modeStr === 'flowers') modeVal = 2.0;
+    else if (modeStr === 'bird') modeVal = 3.0;
 
     // 1. Update GPGPU simulation uniforms
     this.positionVariable.material.uniforms.uTime.value = time;
@@ -484,6 +500,13 @@ export class VisualEngine {
     this.velocityVariable.material.uniforms.uShapeOffset.value.set(0.0, 0.0);
     this.velocityVariable.material.uniforms.uShapeRotation.value = 0.0;
     this.velocityVariable.material.uniforms.uShapeScale.value = 1.0;
+    this.velocityVariable.material.uniforms.uNaturalMode.value = modeVal;
+    this.velocityVariable.material.uniforms.uBirdPos.value.copy(this.naturalController.getBirdPos());
+    this.velocityVariable.material.uniforms.uBirdRotation.value.copy(this.naturalController.getBirdRotation());
+    this.velocityVariable.material.uniforms.uFlapFreq.value = this.naturalController.getFlapFreq();
+    this.velocityVariable.material.uniforms.uRippleAmp.value = this.naturalController.getRippleAmp();
+    this.velocityVariable.material.uniforms.uStemBend.value.copy(this.naturalController.getStemBend());
+    this.velocityVariable.material.uniforms.uBloomFactor.value = this.naturalController.getBloomFactor();
 
     this.renderMaterial.uniforms.uWebcamActive.value = this.isWebcamActive ? 1.0 : 0.0;
     this.renderMaterial.uniforms.uFriendMirrorActive.value = 0.0;
@@ -491,6 +514,7 @@ export class VisualEngine {
     this.renderMaterial.uniforms.uShapeOffset.value.set(0.0, 0.0);
     this.renderMaterial.uniforms.uShapeRotation.value = 0.0;
     this.renderMaterial.uniforms.uShapeScale.value = 1.0;
+    this.renderMaterial.uniforms.uNaturalMode.value = modeVal;
 
     // Dynamically calculate and update aspect ratio scaling uniforms
     const screenAspect = window.innerWidth / window.innerHeight;
@@ -534,6 +558,10 @@ export class VisualEngine {
 
   public setTimePreset(value: TimeOfDayType): void {
     this.timePreset = value;
+  }
+
+  public setNaturalMode(mode: NaturalModeType): void {
+    this.naturalController.setMode(mode);
   }
 
   /**

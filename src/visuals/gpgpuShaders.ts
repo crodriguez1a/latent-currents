@@ -83,6 +83,15 @@ uniform sampler2D uFriendTexture;
 uniform float uFriendMirrorActive;
 uniform float uFriendModeActive;
 uniform float uScreenAspect;
+
+// Natural Elements Mode Uniforms
+uniform float uNaturalMode;
+uniform vec3 uBirdPos;
+uniform vec3 uBirdRotation;
+uniform float uFlapFreq;
+uniform float uRippleAmp;
+uniform vec2 uStemBend;
+uniform float uBloomFactor;
 uniform float uTargetAspect;
 uniform vec2 uShapeOffset;
 uniform float uShapeRotation;
@@ -318,6 +327,113 @@ void main() {
   }
   totalForce += repulsionForce * 0.28 * uSpeed * mass * pressureScale;
 
+  // Apply Natural Mode Forces
+  if (uNaturalMode > 0.5) {
+    // Dampen standard fluid forces so the elements can hold their geometry
+    totalForce *= 0.12;
+    vel *= 0.94; // high damping factor for structural stability
+
+    if (uNaturalMode < 1.5) {
+      // --- Pool of Water ---
+      // Flat horizontal layout at Z = 0
+      vec3 targetPos = vec3((uv.x - 0.5) * 43.6, (uv.y - 0.5) * 23.6, 0.0);
+      
+      // Radial wave ripples responding to mouse touch
+      float mDist = distance(pos.xy, uMouse3D.xy);
+      float ripple = sin(mDist * 3.5 - uTime * 14.0) * exp(-mDist * 0.20) * uRippleAmp * 1.8;
+      targetPos.z += ripple;
+      targetPos.y += ripple * 0.15; // minor y ripple offset
+      
+      totalForce += (targetPos - pos) * 5.5 * mass;
+    } 
+    else if (uNaturalMode < 2.5) {
+      // --- Field of Flowers ---
+      // Distribute particles into 320 columns (stems)
+      float stemCol = floor(uv.x * 320.0) / 320.0;
+      float heightIdx = uv.y; // 0.0 (base) to 1.0 (flower head)
+      
+      float stemX = (stemCol - 0.5) * 43.6;
+      float restX = stemX;
+      float restY = -12.0 + heightIdx * 24.0;
+      float restZ = 0.0;
+
+      // Wind sway noise (increasing with height index)
+      float wind = sin(uTime * 1.6 + stemX * 0.3) * 0.65 * heightIdx * heightIdx;
+      restX += wind;
+
+      // Interactive mouse brush (bends the stem away from cursor position)
+      float mouseDist = distance(vec2(restX, restY), uMouse3D.xy);
+      if (mouseDist < 6.0) {
+        float bend = (1.0 - mouseDist / 6.0) * 2.8 * (uMouseActive > 0.5 ? 2.0 : 1.0);
+        restX += (restX - uMouse3D.x > 0.0 ? 1.0 : -1.0) * bend * heightIdx;
+        restY -= bend * 0.2 * heightIdx;
+      }
+
+      // Flower petals (blooming circles at the top of stems, for uv.y > 0.75)
+      if (heightIdx > 0.75) {
+        float petalAngle = uv.y * 12.56636; // 4 * PI (radial distribution)
+        float r = (0.22 + uBloomFactor * 0.65) * (heightIdx - 0.75) / 0.25;
+        
+        // Petal shape offset around flower head
+        restX = stemX + wind + cos(petalAngle) * r;
+        restY = -12.0 + 0.75 * 24.0 + sin(petalAngle) * r;
+        restZ = sin(petalAngle * 2.0) * r * 0.4;
+      }
+
+      totalForce += (vec3(restX, restY, restZ) - pos) * 6.5 * mass;
+    } 
+    else if (uNaturalMode < 3.5) {
+      // --- Flying Bird ---
+      // We assign 30% of particles (uv.y > 0.70) to form the bird body/wings
+      if (uv.y > 0.70) {
+        // Normalize coordinates for the bird geometry
+        float s = (uv.x - 0.5) * 2.0; // [-1.0, 1.0]
+        float t = (uv.y - 0.85) * 6.666; // [-1.0, 1.0]
+
+        float restX = s * 1.5;
+        float restY = t * 2.2;
+        float restZ = sin(t * 3.14159) * 0.30; // tail curve
+
+        // Wings flap animation
+        if (abs(s) > 0.12) {
+          float flap = sin(uTime * uFlapFreq - abs(s) * 2.5) * abs(s) * 1.9;
+          restX = s * 8.5;
+          restY = t * 1.1 + flap;
+          restZ = -abs(s) * 0.9; // sweep back
+        }
+
+        // Apply yaw & roll rotations from controller
+        vec3 rotatedPos = vec3(restX, restY, restZ);
+        
+        // Roll (Z axis rotation)
+        float cz = cos(uBirdRotation.z);
+        float sz = sin(uBirdRotation.z);
+        rotatedPos.xy = vec2(rotatedPos.x * cz - rotatedPos.y * sz, rotatedPos.x * sz + rotatedPos.y * cz);
+        
+        // Yaw (Y axis rotation)
+        float cy = cos(uBirdRotation.y);
+        float sy = sin(uBirdRotation.y);
+        rotatedPos.xz = vec2(rotatedPos.x * cy - rotatedPos.z * sy, rotatedPos.x * sy + rotatedPos.z * cy);
+
+        vec3 targetBirdWorld = uBirdPos + rotatedPos;
+        totalForce += (targetBirdWorld - pos) * 10.5 * mass;
+      } 
+      else {
+        // Wind currents trailing the bird
+        // Swirl organically around the bird
+        vec3 toBird = pos - uBirdPos;
+        float birdD = length(toBird);
+        if (birdD < 14.0) {
+          float pull = (1.0 - birdD / 14.0) * 0.65;
+          // Vortex suction + trail drag force
+          totalForce.x += (-toBird.y / (birdD + 0.1)) * pull * 0.45;
+          totalForce.y += (toBird.x / (birdD + 0.1)) * pull * 0.45;
+          totalForce -= (toBird / (birdD + 0.1)) * pull * 0.22;
+        }
+      }
+    }
+  }
+
   // Apply acceleration = Force / mass
   vel += totalForce / mass;
 
@@ -473,6 +589,8 @@ uniform vec2 uShapeOffset;
 uniform float uShapeRotation;
 uniform float uShapeScale;
 
+uniform float uNaturalMode;
+
 varying vec3 vVelocity;
 varying vec3 vPosition;
 varying float vColorIdx;
@@ -511,6 +629,71 @@ void main() {
   else if (colorIdx == 4) baseColor = uBaseColors[4];
 
   vec3 finalColor = mix(baseColor, uHighlightColor, colorFactor);
+
+  // Apply Natural Elements Custom Coloring Overrides
+  if (uNaturalMode > 0.5) {
+    if (uNaturalMode < 1.5) {
+      // --- Pool of Water Color Palette ---
+      vec3 waterColors[4];
+      waterColors[0] = vec3(0.015, 0.082, 0.282); // Deep Ocean Blue
+      waterColors[1] = vec3(0.047, 0.251, 0.478); // Teal-Navy
+      waterColors[2] = vec3(0.118, 0.549, 0.647); // Turquoise
+      waterColors[3] = vec3(0.278, 0.776, 0.718); // Cyan foam base
+      
+      int wIdx = int(mod(vColorIdx, 4.0));
+      vec3 waterBase = wIdx == 0 ? waterColors[0] : (wIdx == 1 ? waterColors[1] : (wIdx == 2 ? waterColors[2] : waterColors[3]));
+      
+      // Wave height highlight foam (Z displacement mapped to white highlights)
+      float waveHeight = clamp((vPosition.z + 1.2) / 2.4, 0.0, 1.0);
+      vec3 foamHighlight = vec3(0.85, 0.98, 1.0);
+      finalColor = mix(waterBase, foamHighlight, waveHeight * 0.76 + colorFactor * 0.24);
+    } 
+    else if (uNaturalMode < 2.5) {
+      // --- Field of Flowers Color Palette ---
+      if (vReference.y > 0.75) {
+        // Flower Petals/Bulbs: Orchid Magenta, Violet, Gold Pollen
+        vec3 flowerColors[3];
+        flowerColors[0] = vec3(0.92, 0.078, 0.549); // Wild Orchid
+        flowerColors[1] = vec3(0.722, 0.176, 0.882); // Royal Violet
+        flowerColors[2] = vec3(1.0, 0.647, 0.051);  // Gold Pollen
+        
+        int fIdx = int(mod(vColorIdx, 3.0));
+        vec3 petalColor = fIdx == 0 ? flowerColors[0] : (fIdx == 1 ? flowerColors[1] : flowerColors[2]);
+        finalColor = mix(petalColor, vec3(1.0, 0.95, 0.65), colorFactor * 0.35);
+      } else {
+        // Flower Stems: Forest Green, Emerald, Lime
+        vec3 stemColors[3];
+        stemColors[0] = vec3(0.078, 0.376, 0.176); // Forest Green
+        stemColors[1] = vec3(0.118, 0.584, 0.251); // Emerald
+        stemColors[2] = vec3(0.482, 0.784, 0.176); // Lime Green
+        
+        int sIdx = int(mod(vColorIdx, 3.0));
+        finalColor = sIdx == 0 ? stemColors[0] : (sIdx == 1 ? stemColors[1] : stemColors[2]);
+      }
+    } 
+    else if (uNaturalMode < 3.5) {
+      // --- Flapping Bird Color Palette ---
+      if (vReference.y > 0.70) {
+        // The Bird: Golden Phoenix, Crimson fire trail, Pure White crest
+        vec3 birdColors[3];
+        birdColors[0] = vec3(1.0, 0.824, 0.118); // Golden Feather
+        birdColors[1] = vec3(1.0, 0.451, 0.016); // Phoenix Orange
+        birdColors[2] = vec3(0.98, 0.98, 0.98);   // Celestial White
+        
+        int bIdx = int(mod(vColorIdx, 3.0));
+        finalColor = bIdx == 0 ? birdColors[0] : (bIdx == 1 ? birdColors[1] : birdColors[2]);
+      } else {
+        // Wind Draft Trails: Stardust Cyan, Slate Grey
+        vec3 airColors[2];
+        airColors[0] = vec3(0.22, 0.282, 0.376); // Slate
+        airColors[1] = vec3(0.482, 0.647, 0.784); // Stardust Cyan
+        
+        int aIdx = int(mod(vColorIdx, 2.0));
+        vec3 airBase = aIdx == 0 ? airColors[0] : airColors[1];
+        finalColor = mix(airBase, vec3(1.0, 0.90, 0.72), colorFactor * 0.38);
+      }
+    }
+  }
 
   if (uWebcamMirrorActive > 0.5) {
     // Transform coordinates based on mouse hover/click interaction
