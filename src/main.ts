@@ -2,6 +2,11 @@ import './style.css';
 import { VisualEngine } from './visuals/visualEngine';
 import type { PresetType, TimeOfDayType } from './visuals/visualEngine';
 import { AudioEngine } from './audio/audioEngine';
+import { detectHardware } from './utils/hardware';
+import { DiagnosticLogger } from './utils/logger';
+
+// Initialize in-browser logger immediately before any other code runs
+DiagnosticLogger.init();
 
 // Global variables
 let visualEngine: VisualEngine;
@@ -88,8 +93,25 @@ async function startApp(): Promise<void> {
   audioEngine = new AudioEngine();
   await audioEngine.init();
 
+  // Read Lite Mode state
+  const liteModeCheckbox = document.getElementById('lite-mode-checkbox') as HTMLInputElement;
+  const isLiteMode = liteModeCheckbox ? liteModeCheckbox.checked : false;
+
   // Initialize WebGL/Three.js Engine
-  visualEngine = new VisualEngine('webgl-canvas');
+  // If in Lite Mode, initialize with 256 texture size (65,536 particles), else 512 (262,144 particles)
+  const initialSize = isLiteMode ? 256 : 512;
+  visualEngine = new VisualEngine('webgl-canvas', initialSize);
+
+  // Synchronize the particle count slider and description label in the dashboard settings
+  if (particleSlider && particleVal) {
+    if (isLiteMode) {
+      particleSlider.value = '1';
+      particleVal.textContent = '65,536 (Low)';
+    } else {
+      particleSlider.value = '2';
+      particleVal.textContent = '262,144 (Medium)';
+    }
+  }
 
   // Trigger initial volume settings
   audioEngine.setVolume(parseInt(volumeSlider.value));
@@ -140,6 +162,133 @@ function toggleFullscreen(): void {
   }
 }
 
+let isLowEndDevice = false;
+
+/**
+ * Runs hardware compatibility checks on load and sets up safety warnings.
+ */
+function runHardwareDiagnostics(): void {
+  const liteModeCheckbox = document.getElementById('lite-mode-checkbox') as HTMLInputElement;
+  const hardwareStatusText = document.getElementById('hardware-status-text') as HTMLSpanElement;
+  const hardwareWarning = document.getElementById('hardware-warning') as HTMLDivElement;
+  const hardwareWarningDesc = document.getElementById('hardware-warning-desc') as HTMLParagraphElement;
+  const hardwarePanel = document.getElementById('hardware-panel') as HTMLDivElement;
+  const liteModeLabelText = document.getElementById('lite-mode-label-text') as HTMLSpanElement;
+  const debugConsole = document.getElementById('debug-console') as HTMLDivElement;
+  const closeDebugBtn = document.getElementById('close-debug-btn') as HTMLButtonElement;
+  const debugConsoleLogs = document.getElementById('debug-console-logs') as HTMLDivElement;
+
+  if (!liteModeCheckbox || !hardwareStatusText || !hardwareWarning || !hardwareWarningDesc || !hardwarePanel) {
+    return;
+  }
+
+  // Subscribe debug console overlay to logger outputs (hidden, toggleable by 'd' key press)
+  if (debugConsoleLogs) {
+    DiagnosticLogger.subscribe((msg, type) => {
+      const p = document.createElement('div');
+      p.className = `log-entry-${type}`;
+      p.textContent = msg;
+      debugConsoleLogs.appendChild(p);
+      debugConsoleLogs.scrollTop = debugConsoleLogs.scrollHeight;
+    });
+  }
+
+  if (closeDebugBtn && debugConsole) {
+    closeDebugBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      debugConsole.style.display = 'none';
+    });
+  }
+
+  // Keyboard listener ('d' or 'D') for secret log opening on TV keyboards (for developer debugging)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'd' || e.key === 'D') {
+      if (debugConsole) {
+        const isHidden = debugConsole.style.display === 'none';
+        debugConsole.style.display = isHidden ? 'flex' : 'none';
+      }
+    }
+  });
+
+  // Safe fallback trigger when hardware cannot be detected or errors occur
+  const triggerSafeFallback = (reason: string) => {
+    if (hardwarePanel.classList.contains('status-success') || hardwarePanel.classList.contains('status-warning')) {
+      return;
+    }
+    isLowEndDevice = true;
+    hardwarePanel.classList.add('status-warning');
+    hardwareStatusText.textContent = `Hardware status: Unknown`;
+    hardwareWarningDesc.textContent = `${reason}. Lite Mode has been automatically enabled to ensure smooth performance.`;
+    hardwareWarning.style.display = 'flex';
+    liteModeCheckbox.checked = true;
+    liteModeLabelText.textContent = 'Enable Lite Mode (Auto-enabled for performance)';
+    liteModeLabelText.style.color = '#ff9f1c';
+  };
+
+  // Timeout fallback if diagnostic takes longer than 2.5 seconds (e.g. TV hangs on WebGL requests)
+  const timeoutId = setTimeout(() => {
+    triggerSafeFallback("We could not verify your graphics hardware capabilities");
+  }, 2500);
+
+  try {
+    // Run the detection
+    const profile = detectHardware();
+    clearTimeout(timeoutId); // Diagnostics completed, cancel timeout
+    
+    isLowEndDevice = profile.isLowEnd;
+
+    // Format hardware string for status
+    let gpuString = profile.gpuRenderer || 'Unknown GPU';
+    gpuString = gpuString.replace(/\s*\(tm\)|\s*\(r\)/gi, '')
+                        .replace(/direct3d\d*\s*v\s*|driver\s*|device\s*|angle\s*\(|opengl\s*.*|\)/gi, '')
+                        .trim();
+    
+    if (profile.isLowEnd) {
+      hardwarePanel.classList.add('status-warning');
+      
+      const isTV = /Tizen|SmartTV|Web0S/i.test(navigator.userAgent);
+      const isFailed = !!(profile.warningReason && profile.warningReason.indexOf('failed') !== -1);
+      const isUnknown = !!(profile.gpuRenderer && profile.gpuRenderer.indexOf('Unknown') !== -1);
+      if (isTV || isFailed || isUnknown) {
+        hardwareStatusText.textContent = `Hardware status: Unknown / Constrained`;
+        hardwareWarningDesc.textContent = `We could not verify your graphics hardware capabilities or a TV display was detected. Lite Mode is suggested to ensure smooth performance.`;
+      } else {
+        hardwareStatusText.textContent = `Hardware: Integrated / Mobile (${gpuString})`;
+        const reason = profile.warningReason || 'Constrained graphical resources';
+        hardwareWarningDesc.textContent = `${reason}. Lite Mode has been automatically enabled to protect your device from freezing or lagging.`;
+      }
+      hardwareWarning.style.display = 'flex';
+      
+      // Auto-check and style label
+      liteModeCheckbox.checked = true;
+      liteModeLabelText.textContent = 'Enable Lite Mode (Auto-enabled for performance)';
+      liteModeLabelText.style.color = '#ff9f1c';
+    } else {
+      // Show high performance status
+      hardwarePanel.classList.add('status-success');
+      hardwareStatusText.textContent = `Hardware status: High Performance (${gpuString})`;
+      liteModeLabelText.textContent = 'Enable Lite Mode (Optimize for battery/heat)';
+    }
+  } catch (err) {
+    console.error("Uncaught diagnostics error:", err);
+    clearTimeout(timeoutId);
+    triggerSafeFallback("An error occurred while evaluating your graphics hardware");
+  }
+
+  // Hook confirmation check if user tries to uncheck on low-end hardware
+  liteModeCheckbox.addEventListener('change', (e) => {
+    if (isLowEndDevice && !liteModeCheckbox.checked) {
+      const confirmDisable = confirm(
+        "WARNING: Disabling Lite Mode on this device may cause the particle simulation to lag severely or crash your browser.\n\nAre you sure you want to run the full simulation?"
+      );
+      if (!confirmDisable) {
+        liteModeCheckbox.checked = true;
+        e.preventDefault();
+      }
+    }
+  });
+}
+
 let isEventsBound = false;
 
 /**
@@ -148,6 +297,9 @@ let isEventsBound = false;
 function bindEvents(): void {
   if (isEventsBound) return;
   isEventsBound = true;
+
+  // Run diagnostics immediately when binding events
+  runHardwareDiagnostics();
 
   // Splash unlock button
   enterBtn.addEventListener('click', () => startApp());

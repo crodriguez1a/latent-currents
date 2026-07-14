@@ -77,8 +77,28 @@ uniform vec3 uMouse3D;
 uniform float uMouseActive;
 uniform sampler2D uMotionTexture;
 uniform float uWebcamActive;
+uniform sampler2D uWebcamTexture;
+uniform float uWebcamMirrorActive;
+uniform sampler2D uFriendTexture;
+uniform float uFriendMirrorActive;
+uniform float uFriendModeActive;
+uniform float uScreenAspect;
+uniform float uTargetAspect;
+uniform vec2 uShapeOffset;
+uniform float uShapeRotation;
+uniform float uShapeScale;
 
 ${simplexNoiseGLSL}
+
+vec2 transformUV(vec2 coord, vec2 offset, float angle, float scale) {
+  vec2 p = coord - vec2(0.5);
+  p /= scale;
+  float c = cos(-angle);
+  float s = sin(-angle);
+  p = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+  p -= offset;
+  return p + vec2(0.5);
+}
 
 void main() {
   vec2 uv = gl_FragCoord.xy / resolution.xy;
@@ -88,9 +108,64 @@ void main() {
   vec3 pos = posData.xyz;
   vec3 vel = velData.xyz;
 
+  // Initialize and compute pullFactor early based on webcam/friend grid texture
+  float pullFactor = 0.0;
+
+  // Transform coordinates based on mouse hover/click interaction
+  vec2 transformedUV = transformUV(uv, uShapeOffset, uShapeRotation, uShapeScale);
+
+  // Calculate scaled targetGridUV to preserve aspect ratio of the target shape
+  float scaleX = 1.0;
+  float scaleY = 1.0;
+  if (uWebcamMirrorActive > 0.5) {
+    if (uTargetAspect < uScreenAspect) {
+      scaleX = uTargetAspect / uScreenAspect;
+    } else {
+      scaleY = uScreenAspect / uTargetAspect;
+    }
+  }
+
+  vec2 targetGridUV = vec2(
+    (transformedUV.x - 0.5) / scaleX + 0.5,
+    (transformedUV.y - 0.5) / scaleY + 0.5
+  );
+
+  if (uWebcamMirrorActive > 0.5 && targetGridUV.x >= 0.0 && targetGridUV.x <= 1.0 && targetGridUV.y >= 0.0 && targetGridUV.y <= 1.0) {
+    vec2 sampleUV = vec2(1.0 - targetGridUV.x, targetGridUV.y);
+    float camLuma = 0.0;
+    if (uFriendModeActive > 0.5) {
+      if (uFriendMirrorActive > 0.5) {
+        vec4 camColor = texture2D(uWebcamTexture, sampleUV);
+        camLuma = camColor.r * 0.299 + camColor.g * 0.587 + camColor.b * 0.114;
+      } else {
+        vec4 friendColor = texture2D(uFriendTexture, sampleUV);
+        camLuma = friendColor.r * 0.299 + friendColor.g * 0.587 + friendColor.b * 0.114;
+      }
+    } else {
+      vec4 camColor = texture2D(uWebcamTexture, sampleUV);
+      camLuma = camColor.r * 0.299 + camColor.g * 0.587 + camColor.b * 0.114;
+    }
+    // Read local motion intensity from the optical flow texture
+    vec4 motionData = texture2D(uMotionTexture, sampleUV);
+    float motionIntensity = motionData.b;
+    pullFactor = clamp(camLuma * 0.45 + motionIntensity * 0.38, 0.0, 0.88);
+
+    // Obfuscate the edges by fading pull factor near the frame boundaries to let particles float away (entropy)
+    float edgeFadeX = smoothstep(0.0, 0.12, targetGridUV.x) * (1.0 - smoothstep(0.88, 1.0, targetGridUV.x));
+    float edgeFadeY = smoothstep(0.0, 0.08, targetGridUV.y) * (1.0 - smoothstep(0.92, 1.0, targetGridUV.y));
+    pullFactor *= edgeFadeX * edgeFadeY;
+  }
+
+  // Calculate scaling factor to damp ambient currents inside active silhouettes
+  // Softened damping (only 30% reduction) to allow ambient currents to organically ripple the shapes
+  float ambientScale = 1.0;
+  if (uWebcamMirrorActive > 0.5) {
+    ambientScale = 1.0 - clamp(pullFactor * 0.30, 0.0, 0.30);
+  }
+
   // Mass varies based on texture coordinate (gives some particles more inertia)
   // Let mass range from 0.35 (very light spray) to 2.2 (heavy plates)
-  float mass = mix(0.35, 2.2, fract(uv.x * 123.456 + uv.y * 789.123));
+  float mass = mix(0.35, 2.2, fract(uv.x * 12.9898 + uv.y * 78.233));
 
   // Apply mass-dependent drag: heavier particles slide longer with less drag
   float drag = mix(0.958, 0.993, (mass - 0.35) / (2.2 - 0.35));
@@ -113,7 +188,7 @@ void main() {
   float noiseY = snoise(pos * windFreq + vec3(2.34, 5.67, uTime * 0.06)) * localTurbulence * windScale;
   float noiseZ = snoise(pos * windFreq + vec3(8.91, 1.23, uTime * 0.06)) * localTurbulence * windScale;
 
-  totalForce += vec3(noiseX, noiseY, noiseZ) * forceFactor;
+  totalForce += vec3(noiseX, noiseY, noiseZ) * forceFactor * ambientScale;
 
   // 2. Circular Roller Currents
   // Roller 1: Center-left, pulling down and curling back up
@@ -123,8 +198,8 @@ void main() {
   if (dist1Sq < 144.0) { // Radius of 12
     float dist1 = sqrt(dist1Sq) + 0.1;
     float rollInfluence = (1.0 - dist1 / 12.0) * uSpeed * 0.22;
-    totalForce.x += (-d1.y / dist1) * rollInfluence;
-    totalForce.y += (d1.x / dist1) * rollInfluence;
+    totalForce.x += (-d1.y / dist1) * rollInfluence * ambientScale;
+    totalForce.y += (d1.x / dist1) * rollInfluence * ambientScale;
   }
 
   // Roller 2: Right side, rotating opposite
@@ -134,8 +209,8 @@ void main() {
   if (dist2Sq < 81.0) { // Radius of 9
     float dist2 = sqrt(dist2Sq) + 0.1;
     float rollInfluence = (1.0 - dist2 / 9.0) * (-uSpeed * 0.15);
-    totalForce.x += (-d2.y / dist2) * rollInfluence;
-    totalForce.y += (d2.x / dist2) * rollInfluence;
+    totalForce.x += (-d2.y / dist2) * rollInfluence * ambientScale;
+    totalForce.y += (d2.x / dist2) * rollInfluence * ambientScale;
   }
 
   // 3. Crashing Swell Wave Front
@@ -147,14 +222,14 @@ void main() {
   if (distToWave > -5.0 && distToWave < 1.0) {
     float liftFactor = (1.0 - abs(distToWave + 2.0) / 3.0);
     float normalizedLift = max(0.0, liftFactor) * (mass > 1.1 ? 0.35 : 0.8) * uSpeed;
-    totalForce.y += normalizedLift;
-    totalForce.x += normalizedLift * 0.5;
-    totalForce.z += snoise(pos * 0.2) * normalizedLift * 0.25;
+    totalForce.y += normalizedLift * ambientScale;
+    totalForce.x += normalizedLift * 0.5 * ambientScale;
+    totalForce.z += snoise(pos * 0.2) * normalizedLift * 0.25 * ambientScale;
   } else if (distToWave >= -10.0 && distToWave <= -5.0) {
     float crashFactor = (1.0 - abs(distToWave + 7.5) / 2.5);
     float normalizedCrash = max(0.0, crashFactor) * (mass > 1.1 ? 0.4 : 0.2) * uSpeed;
-    totalForce.y -= normalizedCrash;
-    totalForce.x += normalizedCrash * 0.25;
+    totalForce.y -= normalizedCrash * ambientScale;
+    totalForce.x += normalizedCrash * 0.25 * ambientScale;
   }
 
   // 4. Mouse Interactive Forces
@@ -185,6 +260,64 @@ void main() {
     totalForce += webcamForce;
   }
 
+  // 5.2 Webcam Mirror Attraction (Pulls particles to form the mirrored silhouette)
+  if (uWebcamMirrorActive > 0.5) {
+    vec2 targetGridUV = vec2(
+      (transformedUV.x - 0.5) / scaleX + 0.5,
+      (transformedUV.y - 0.5) / scaleY + 0.5
+    );
+
+    // Add a tiny, organic breathing sway to the targets if it is Friend Mode or Camera Mirror Friend shape
+    float swayX = 0.0;
+    float swayY = 0.0;
+    if (uFriendMirrorActive > 0.5 || uWebcamActive < 0.5) {
+      swayX = sin(uTime * 1.5 + targetGridUV.y * 5.0) * 0.10;
+      swayY = cos(uTime * 1.1 + targetGridUV.x * 5.0) * 0.06;
+    }
+
+    vec3 targetPos = vec3(
+      (targetGridUV.x - 0.5) * 43.6 * scaleX + swayX,
+      (targetGridUV.y - 0.5) * 23.6 * scaleY + swayY,
+      0.0
+    );
+
+    vec3 toGrid = targetPos - pos;
+    // PD controller (Proportional-Derivative) with organic, fluid gains to allow flow-through and deformation
+    vec3 pdForce = (toGrid * 1.85 - vel * 0.95) * pullFactor * uSpeed * mass;
+    totalForce += pdForce;
+  }
+
+  // 5.5 Continuous Negative-Space Pressure (Pushes particles away from neighbors towards empty space)
+  vec3 repulsionForce = vec3(0.0);
+  float searchRadius = 3.6;
+  
+  for (int i = 1; i <= 8; i++) {
+    float fi = float(i);
+    // Pseudo-random sampling of other particles
+    vec2 sampleUV = fract(uv + vec2(
+      fract(sin(uv.x * 12.9898 + uv.y * 78.233 + fi * 3.14) * 43758.5453),
+      fract(cos(uv.x * 35.1234 + uv.y * 91.5678 + fi * 5.71) * 23456.7891)
+    ));
+    vec3 otherPos = texture2D(texturePosition, sampleUV).xyz;
+    vec3 repelDir = pos - otherPos;
+    float distSq = dot(repelDir, repelDir);
+    
+    if (distSq < searchRadius * searchRadius && distSq > 0.0001) {
+      float dist = sqrt(distSq);
+      // Smoothed particle hydrodynamics (SPH) pressure curve: force falls off with distance, spikes when extremely close
+      float forceStrength = (1.0 - dist / searchRadius) / (dist + 0.12);
+      repulsionForce += (repelDir / dist) * forceStrength;
+    }
+  }
+
+  // Apply continuous pressure force (multiplied by mass to bypass inertia and scale with speed)
+  // Scale down neighbor pressure slightly inside silhouettes to allow cohesive clustering while keeping collision dynamics pliant
+  float pressureScale = 1.0;
+  if (uWebcamMirrorActive > 0.5) {
+    pressureScale = 1.0 - clamp(pullFactor * 0.35, 0.0, 0.35);
+  }
+  totalForce += repulsionForce * 0.28 * uSpeed * mass * pressureScale;
+
   // Apply acceleration = Force / mass
   vel += totalForce / mass;
 
@@ -198,6 +331,14 @@ void main() {
   if (pos.x > 18.0 && pos.y < -8.0) {
     vel.x -= 0.024 * uSpeed;
     vel.y += 0.016 * uSpeed;
+  }
+
+  // 8. Top-Right Corner Stagnation Prevention (Disperses particles left and down to prevent burn-in / hot spots)
+  if (pos.x > 15.0 && pos.y > 7.0) {
+    float trFactor = clamp((pos.x - 15.0) * (pos.y - 7.0) / 35.0, 0.0, 1.0);
+    float trNoise = snoise(vec3(pos.xy * 0.12, uTime * 0.25)) * 0.12;
+    vel.x -= trFactor * (0.042 + trNoise) * uSpeed;
+    vel.y -= trFactor * (0.028 - trNoise) * uSpeed;
   }
 
   // --- SHADOWBOX BOUNDS & ELASTIC BOUNCES ---
@@ -259,20 +400,20 @@ void main() {
   // Euler integration
   pos += vel * uDeltaTime;
 
+  // Recycle particle if it hits the right edge (x >= 21.8) or is uninitialized (0,0,0)
+  // This prevents boundary wall compression and stacks
+  if (dot(pos, pos) == 0.0 || pos.x >= 21.8) {
+    vec4 initPos = texture2D(uInitialPosition, uv);
+    // Distribute entries randomly inside the left zone to prevent left-wall clamping line
+    pos.x = -21.2 + rand(uv + vec2(uTime, 1.35)) * 5.5;
+    pos.y = (rand(uv + vec2(uTime, 4.72)) - 0.5) * 20.0;
+    pos.z = (rand(uv + vec2(uTime, 8.19)) - 0.5) * 10.0;
+  }
+
   // Clamp positions to shadowbox boundary box to prevent escape
   pos.x = clamp(pos.x, -22.0, 22.0);
   pos.y = clamp(pos.y, -12.0, 12.0);
   pos.z = clamp(pos.z, -6.0, 6.0);
-
-  // Stagger respawn only if position is completely uninitialized (0,0,0) or invalid
-  if (dot(pos, pos) == 0.0) {
-    vec4 initPos = texture2D(uInitialPosition, uv);
-    pos = initPos.xyz;
-    
-    pos.x = -22.0 - rand(uv + vec2(uTime, 0.0)) * 5.0;
-    pos.y = (rand(uv + vec2(0.0, uTime)) - 0.5) * 16.0 - 2.0;
-    pos.z = (rand(uv + vec2(uTime, uTime)) - 0.5) * 6.0;
-  }
 
   gl_FragColor = vec4(pos, posData.w);
 }
@@ -290,8 +431,12 @@ attribute vec2 reference;
 varying vec3 vVelocity;
 varying vec3 vPosition;
 varying float vColorIdx;
+varying vec2 vReference;
 
 void main() {
+  // Pass reference to fragment shader for webcam pixel mapping
+  vReference = reference;
+
   // Read coordinates from position texture
   vec4 posData = texture2D(uPositionTexture, reference);
   vPosition = posData.xyz;
@@ -316,10 +461,32 @@ export const renderFragmentShader = `
 uniform vec3 uBaseColors[5];
 uniform vec3 uHighlightColor;
 uniform float uOpacity;
+uniform sampler2D uWebcamTexture;
+uniform float uWebcamMirrorActive;
+uniform float uWebcamActive;
+uniform sampler2D uFriendTexture;
+uniform float uFriendMirrorActive;
+uniform float uFriendModeActive;
+uniform float uScreenAspect;
+uniform float uTargetAspect;
+uniform vec2 uShapeOffset;
+uniform float uShapeRotation;
+uniform float uShapeScale;
 
 varying vec3 vVelocity;
 varying vec3 vPosition;
 varying float vColorIdx;
+varying vec2 vReference;
+
+vec2 transformUV(vec2 coord, vec2 offset, float angle, float scale) {
+  vec2 p = coord - vec2(0.5);
+  p /= scale;
+  float c = cos(-angle);
+  float s = sin(-angle);
+  p = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+  p -= offset;
+  return p + vec2(0.5);
+}
 
 void main() {
   // Draw soft glowing circular particles (billboards)
@@ -345,6 +512,48 @@ void main() {
 
   vec3 finalColor = mix(baseColor, uHighlightColor, colorFactor);
 
-  gl_FragColor = vec4(finalColor, uOpacity * intensity);
+  if (uWebcamMirrorActive > 0.5) {
+    // Transform coordinates based on mouse hover/click interaction
+    vec2 transformedUV = transformUV(vReference, uShapeOffset, uShapeRotation, uShapeScale);
+
+    float scaleX = 1.0;
+    float scaleY = 1.0;
+    if (uTargetAspect < uScreenAspect) {
+      scaleX = uTargetAspect / uScreenAspect;
+    } else {
+      scaleY = uScreenAspect / uTargetAspect;
+    }
+    vec2 targetGridUV = vec2(
+      (transformedUV.x - 0.5) / scaleX + 0.5,
+      (transformedUV.y - 0.5) / scaleY + 0.5
+    );
+    
+    if (targetGridUV.x >= 0.0 && targetGridUV.x <= 1.0 && targetGridUV.y >= 0.0 && targetGridUV.y <= 1.0) {
+      vec2 sampleUV = vec2(1.0 - targetGridUV.x, targetGridUV.y);
+      vec4 colorSample;
+      if (uFriendModeActive > 0.5) {
+        if (uFriendMirrorActive > 0.5) {
+          colorSample = texture2D(uWebcamTexture, sampleUV);
+        } else {
+          colorSample = texture2D(uFriendTexture, sampleUV);
+        }
+      } else {
+        colorSample = texture2D(uWebcamTexture, sampleUV);
+      }
+      
+      // Obfuscate the boundaries by fading the webcam blend factor near the frame edges
+      float edgeFadeX = smoothstep(0.0, 0.12, targetGridUV.x) * (1.0 - smoothstep(0.88, 1.0, targetGridUV.x));
+      float edgeFadeY = smoothstep(0.0, 0.08, targetGridUV.y) * (1.0 - smoothstep(0.92, 1.0, targetGridUV.y));
+      float edgeFade = edgeFadeX * edgeFadeY;
+
+      // Blend camera/friend colors (fading to preset background color near edges)
+      finalColor = mix(finalColor, colorSample.rgb, 0.72 * colorSample.a * edgeFade);
+    }
+  }
+
+  // Fade out particles as they approach the right wall to prevent sudden boundary pops or stacks
+  float rightWallFade = clamp((21.5 - vPosition.x) / 3.0, 0.0, 1.0);
+
+  gl_FragColor = vec4(finalColor, uOpacity * intensity * rightWallFade);
 }
 `;

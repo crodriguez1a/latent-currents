@@ -4,7 +4,40 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Aether: Emergent Latent Space - Generative Art Installation</title>
+    <script>
+      window.addEventListener('error', function(event) {
+        var errDiv = document.getElementById('runtime-error-overlay');
+        if (!errDiv) {
+          errDiv = document.createElement('div');
+          errDiv.id = 'runtime-error-overlay';
+          errDiv.style.position = 'fixed';
+          errDiv.style.top = '0';
+          errDiv.style.left = '0';
+          errDiv.style.width = '100vw';
+          errDiv.style.height = '100vh';
+          errDiv.style.backgroundColor = 'rgba(20, 0, 0, 0.95)';
+          errDiv.style.color = '#ff3333';
+          errDiv.style.fontFamily = 'monospace';
+          errDiv.style.padding = '20px';
+          errDiv.style.zIndex = '999999';
+          errDiv.style.boxSizing = 'border-box';
+          errDiv.style.overflowY = 'auto';
+          errDiv.innerHTML = '<h2 style="color: #ff3333; margin-top: 0;">[Runtime Error Detected]</h2><pre style="white-space: pre-wrap; font-size: 14px; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 5px;" id="runtime-error-content"></pre>';
+          document.body.appendChild(errDiv);
+        }
+        var msg = event.message + '\nat ' + event.filename + ':' + event.lineno + ':' + event.colno;
+        if (event.error && event.error.stack) {
+          msg += '\n\nStack Trace:\n' + event.error.stack;
+        }
+        document.getElementById('runtime-error-content').innerText += msg + '\n\n';
+      });
+    </script>
     <meta name="description" content="An immersive, real-time generative art installation inspired by Refik Anadol's Unsupervised, rendered in WebGL with ambient soundscapes." />
+    
+    <!-- Disable browser caching to force loading latest compiled assets -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,8 +57,39 @@
         <h1 class="splash-title">Aether: Emergent Latent Space</h1>
         <p class="splash-subtitle">An interactive generative art installation</p>
         <p class="splash-description">
-          A continuous, non-repeating flow of 5,000+ particles simulated in real-time, responding to environment and sound. Inspired by Refik Anadol's <em>Unsupervised</em>.
+          A continuous, non-repeating flow of up to 1,000,000 particles simulated in real-time on your GPU, responding to ambient sound and movement. Inspired by Refik Anadol's <em>Unsupervised</em>.
         </p>
+        
+        <!-- Hardware Diagnostic Panel -->
+        <div id="hardware-panel" class="hardware-panel">
+          <div class="hardware-status">
+            <span class="diagnostic-pulse"></span>
+            <span id="hardware-status-text">Checking graphics hardware...</span>
+          </div>
+          
+          <div id="hardware-warning" class="hardware-warning" style="display: none;">
+            <div class="warning-title-row">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <span>Performance Warning</span>
+            </div>
+            <p id="hardware-warning-desc">WebGL GPGPU computation requires floating point texture support.</p>
+          </div>
+
+          <div class="lite-mode-container">
+            <label class="lite-mode-label" for="lite-mode-checkbox">
+              <span class="custom-checkbox-wrapper">
+                <input type="checkbox" id="lite-mode-checkbox" />
+                <span class="custom-checkbox"></span>
+              </span>
+              <span id="lite-mode-label-text" class="lite-mode-label-text">Enable Lite Mode (Optimize for battery/performance)</span>
+            </label>
+          </div>
+        </div>
+
         <button id="enter-btn" class="enter-button">Enter Installation</button>
       </div>
     </div>
@@ -162,6 +226,8 @@
           </div>
         </section>
 
+
+
         <!-- Section: Environment -->
         <section class="control-section">
           <h3>Environment Simulation</h3>
@@ -218,6 +284,18 @@
         <p>Interactive Generative Installation</p>
       </footer>
     </main>
+
+    <!-- Diagnostic Debug Console -->
+    <div id="debug-console" class="debug-console" style="display: none;">
+      <div class="debug-console-header">
+        <span>Aether Diagnostics Console</span>
+        <button id="close-debug-btn" class="close-debug-btn">Hide</button>
+      </div>
+      <div id="debug-console-logs" class="debug-console-logs scroller"></div>
+    </div>
+
+    <!-- Version Pill -->
+    <div class="version-pill">v3.2-fluid-clean</div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer.js';
+
 import {
   velocityShader,
   positionShader,
@@ -56,6 +57,8 @@ export class VisualEngine {
   // Average velocity metric for audio integration
   private averageVelocity = 0.0;
 
+
+
   // Curated Coolors-inspired Color Palettes
   private palettes = {
     paint: [
@@ -106,10 +109,17 @@ export class VisualEngine {
   private motionData = new Float32Array(64 * 64 * 4);
   private motionTexture!: THREE.DataTexture;
   private isWebcamActive = false;
+  private webcamVideoTexture: THREE.VideoTexture | null = null;
+  private webcamAspect = 1.0;
+  private dummyTexture!: THREE.DataTexture;
 
-  constructor(canvasId: string) {
+  constructor(canvasId: string, initialTextureSize = 512) {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
     
+     // Create a fallback empty black texture for when the webcam is inactive
+    this.dummyTexture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1, THREE.RGBAFormat);
+    this.dummyTexture.needsUpdate = true;
+
     // Create motion tracking texture and canvas contexts
     this.webcamCanvas = document.createElement('canvas');
     this.webcamCanvas.width = 64;
@@ -129,7 +139,7 @@ export class VisualEngine {
     this.motionTexture.wrapT = THREE.ClampToEdgeWrapping;
 
     this.initThree();
-    this.initGPGPU(512); // Default to 262K particles
+    this.initGPGPU(initialTextureSize); // Set initial particle count
     this.applyPreset(this.currentPreset);
     this.setupEvents();
   }
@@ -156,6 +166,7 @@ export class VisualEngine {
       powerPreference: 'high-performance'
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.localClippingEnabled = true;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     // 4. Lighting
@@ -186,6 +197,8 @@ export class VisualEngine {
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(renderPass);
     this.composer.addPass(this.bloomPass);
+
+
   }
 
   /**
@@ -239,6 +252,16 @@ export class VisualEngine {
     this.velocityVariable.material.uniforms.uMouseActive = { value: 0.0 };
     this.velocityVariable.material.uniforms.uMotionTexture = { value: this.motionTexture };
     this.velocityVariable.material.uniforms.uWebcamActive = { value: 0.0 };
+    this.velocityVariable.material.uniforms.uWebcamTexture = { value: this.webcamVideoTexture || this.dummyTexture };
+    this.velocityVariable.material.uniforms.uWebcamMirrorActive = { value: this.isWebcamActive ? 1.0 : 0.0 };
+    this.velocityVariable.material.uniforms.uFriendTexture = { value: this.dummyTexture };
+    this.velocityVariable.material.uniforms.uFriendMirrorActive = { value: 0.0 };
+    this.velocityVariable.material.uniforms.uFriendModeActive = { value: 0.0 };
+    this.velocityVariable.material.uniforms.uScreenAspect = { value: window.innerWidth / window.innerHeight };
+    this.velocityVariable.material.uniforms.uTargetAspect = { value: 1.0 };
+    this.velocityVariable.material.uniforms.uShapeOffset = { value: new THREE.Vector2(0, 0) };
+    this.velocityVariable.material.uniforms.uShapeRotation = { value: 0.0 };
+    this.velocityVariable.material.uniforms.uShapeScale = { value: 1.0 };
 
     // Initialize renderer
     const error = this.gpuCompute.init();
@@ -283,7 +306,18 @@ export class VisualEngine {
         uDensityScale: { value: 1.0 },
         uBaseColors: { value: this.palettes[this.currentPreset] },
         uHighlightColor: { value: this.highlights[this.currentPreset] },
-        uOpacity: { value: 0.65 }
+        uOpacity: { value: 0.40 },
+        uWebcamTexture: { value: this.webcamVideoTexture || this.dummyTexture },
+        uWebcamMirrorActive: { value: this.isWebcamActive ? 1.0 : 0.0 },
+        uWebcamActive: { value: 0.0 },
+        uFriendTexture: { value: this.dummyTexture },
+        uFriendMirrorActive: { value: 0.0 },
+        uFriendModeActive: { value: 0.0 },
+        uScreenAspect: { value: window.innerWidth / window.innerHeight },
+        uTargetAspect: { value: 1.0 },
+        uShapeOffset: { value: new THREE.Vector2(0, 0) },
+        uShapeRotation: { value: 0.0 },
+        uShapeScale: { value: 1.0 }
       },
       transparent: true,
       depthWrite: false,
@@ -413,6 +447,11 @@ export class VisualEngine {
   public update(dt: number, time: number): void {
     this.applyTimeOfDayPalette();
 
+    // Keep background GPGPU particles visible
+    if (this.pointsMesh) {
+      this.pointsMesh.visible = true;
+    }
+
     // Spotlight orbits slowly
     this.spotlight.position.x = Math.sin(time * 0.12) * 16;
     this.spotlight.position.y = 14 + Math.cos(time * 0.06) * 4;
@@ -426,6 +465,8 @@ export class VisualEngine {
       this.updateWebcamMotionTexture();
     }
 
+
+
     // 1. Update GPGPU simulation uniforms
     this.positionVariable.material.uniforms.uTime.value = time;
     this.positionVariable.material.uniforms.uDeltaTime.value = dt;
@@ -438,6 +479,26 @@ export class VisualEngine {
     this.velocityVariable.material.uniforms.uMouseActive.value = this.isMouseActive ? 1.0 : 0.0;
     this.velocityVariable.material.uniforms.uMotionTexture.value = this.motionTexture;
     this.velocityVariable.material.uniforms.uWebcamActive.value = this.isWebcamActive ? 1.0 : 0.0;
+    this.velocityVariable.material.uniforms.uFriendMirrorActive.value = 0.0;
+    this.velocityVariable.material.uniforms.uFriendModeActive.value = 0.0;
+    this.velocityVariable.material.uniforms.uShapeOffset.value.set(0.0, 0.0);
+    this.velocityVariable.material.uniforms.uShapeRotation.value = 0.0;
+    this.velocityVariable.material.uniforms.uShapeScale.value = 1.0;
+
+    this.renderMaterial.uniforms.uWebcamActive.value = this.isWebcamActive ? 1.0 : 0.0;
+    this.renderMaterial.uniforms.uFriendMirrorActive.value = 0.0;
+    this.renderMaterial.uniforms.uFriendModeActive.value = 0.0;
+    this.renderMaterial.uniforms.uShapeOffset.value.set(0.0, 0.0);
+    this.renderMaterial.uniforms.uShapeRotation.value = 0.0;
+    this.renderMaterial.uniforms.uShapeScale.value = 1.0;
+
+    // Dynamically calculate and update aspect ratio scaling uniforms
+    const screenAspect = window.innerWidth / window.innerHeight;
+    const targetAspect = this.webcamAspect;
+    this.velocityVariable.material.uniforms.uScreenAspect.value = screenAspect;
+    this.velocityVariable.material.uniforms.uTargetAspect.value = targetAspect;
+    this.renderMaterial.uniforms.uScreenAspect.value = screenAspect;
+    this.renderMaterial.uniforms.uTargetAspect.value = targetAspect;
 
     // 2. Compute GPGPU step on GPU
     this.gpuCompute.compute();
@@ -538,7 +599,7 @@ export class VisualEngine {
     if (!this.isLightMode) {
       this.renderMaterial.blending = THREE.AdditiveBlending;
       this.renderMaterial.depthWrite = false;
-      this.renderMaterial.uniforms.uOpacity.value = 0.65;
+      this.renderMaterial.uniforms.uOpacity.value = 0.40;
       this.renderMaterial.uniforms.uPointSize.value = 3.2;
 
       switch (preset) {
@@ -551,7 +612,7 @@ export class VisualEngine {
           this.bloomPass.strength = 1.35; // Intense Cyberpunk bloom
           this.bloomPass.radius = 0.55;
           this.bloomPass.threshold = 0.75;
-          this.renderMaterial.uniforms.uOpacity.value = 0.75;
+          this.renderMaterial.uniforms.uOpacity.value = 0.48;
           break;
         case 'monolith':
           this.bloomPass.strength = 0.35;
@@ -590,6 +651,38 @@ export class VisualEngine {
         this.webcamStream = stream;
         this.webcamVideo.srcObject = stream;
         this.webcamVideo.play();
+
+        // Listen for metadata to calculate correct aspect ratio of camera stream
+        this.webcamVideo.onloadedmetadata = () => {
+          if (this.webcamVideo) {
+            const w = this.webcamVideo.videoWidth;
+            const h = this.webcamVideo.videoHeight;
+            if (w > 0 && h > 0) {
+              this.webcamAspect = w / h;
+              console.log(`Webcam aspect ratio metadata loaded: ${this.webcamAspect}`);
+            }
+          }
+        };
+        if (this.webcamVideo.videoWidth > 0 && this.webcamVideo.videoHeight > 0) {
+          this.webcamAspect = this.webcamVideo.videoWidth / this.webcamVideo.videoHeight;
+        }
+        
+        // Initialize Three.js VideoTexture from the webcam element
+        this.webcamVideoTexture = new THREE.VideoTexture(this.webcamVideo);
+        this.webcamVideoTexture.minFilter = THREE.LinearFilter;
+        this.webcamVideoTexture.magFilter = THREE.LinearFilter;
+        this.webcamVideoTexture.format = THREE.RGBAFormat;
+
+        // Bind texture to GPGPU velocity and rendering material uniforms
+        if (this.velocityVariable) {
+          this.velocityVariable.material.uniforms.uWebcamTexture.value = this.webcamVideoTexture;
+          this.velocityVariable.material.uniforms.uWebcamMirrorActive.value = 1.0;
+        }
+        if (this.renderMaterial) {
+          this.renderMaterial.uniforms.uWebcamTexture.value = this.webcamVideoTexture;
+          this.renderMaterial.uniforms.uWebcamMirrorActive.value = 1.0;
+        }
+
         this.isWebcamActive = true;
         
         // Warm up previous frame buffer
@@ -608,6 +701,8 @@ export class VisualEngine {
     }
   }
 
+
+
   private closeWebcam(): void {
     if (this.webcamStream) {
       this.webcamStream.getTracks().forEach((track) => track.stop());
@@ -617,11 +712,33 @@ export class VisualEngine {
       this.webcamVideo.srcObject = null;
       this.webcamVideo.pause();
     }
+    
+    // Dispose the webcam video texture if it exists
+    if (this.webcamVideoTexture) {
+      this.webcamVideoTexture.dispose();
+      this.webcamVideoTexture = null;
+    }
+    
+    // Bind dummy texture back and reset active states
+    if (this.velocityVariable) {
+      this.velocityVariable.material.uniforms.uWebcamTexture.value = this.dummyTexture;
+      this.velocityVariable.material.uniforms.uWebcamMirrorActive.value = 0.0;
+    }
+    if (this.renderMaterial) {
+      this.renderMaterial.uniforms.uWebcamTexture.value = this.dummyTexture;
+      this.renderMaterial.uniforms.uWebcamMirrorActive.value = 0.0;
+    }
+
     // Reset motion data texture buffer to zeros
     this.motionData.fill(0);
     this.motionTexture.needsUpdate = true;
+    this.webcamAspect = 1.0;
     console.log('Webcam closed.');
   }
+
+
+
+
 
   /**
    * Reads current video frame, computes optical flow vectors and updates motionTexture
@@ -696,3 +813,4 @@ export class VisualEngine {
     }
   }
 }
+
