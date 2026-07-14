@@ -615,6 +615,7 @@ export class VisualEngine {
    * Curated visual presets with color palettes
    */
   public applyPreset(preset: PresetType): void {
+    if (!preset || !this.palettes[preset]) return;
     this.currentPreset = preset;
     
     if (!this.renderMaterial) return;

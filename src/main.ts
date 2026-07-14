@@ -22,7 +22,7 @@ const dashboardTab = document.getElementById('dashboard-tab') as HTMLButtonEleme
 const fullscreenBtn = document.getElementById('fullscreen-btn') as HTMLButtonElement;
 
 // Preset cards
-const presetCards = document.querySelectorAll('.preset-card');
+const presetCards = document.querySelectorAll('.preset-card[data-preset]');
 
 // Sliders and Selects
 const speedSlider = document.getElementById('speed-slider') as HTMLInputElement;
